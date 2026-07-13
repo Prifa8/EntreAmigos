@@ -174,14 +174,10 @@ class MainViewModel(
     val groupBalancesMap: StateFlow<Map<Long, Long>> = _groupBalancesMap.asStateFlow()
 
     init {
-        // Seed database once if empty or has duplicate entries, to clear corruption and avoid freezing
+        // Force complete clean hard reset on this startup as requested by the user
         viewModelScope.launch {
-            val existingGroups = repository.allGroups.first()
-            val hasDuplicates = existingGroups.groupBy { it.name }.any { it.value.size > 1 }
-            if (existingGroups.isEmpty() || hasDuplicates) {
-                repository.clearAllData()
-                seedDatabase()
-            }
+            repository.clearAllData()
+            seedDatabase()
         }
 
         // Listen to changes and update financials
@@ -544,6 +540,16 @@ class MainViewModel(
 
     fun getCommentsForExpense(expenseId: Long): Flow<List<CommentEntity>> =
         repository.getCommentsForExpense(expenseId)
+
+    fun performHardReset() {
+        viewModelScope.launch {
+            repository.clearAllData()
+            seedDatabase()
+            _activeGroupId.value = null
+            _currentScreen.value = Screen.Main
+            _currentTab.value = MainTab.INICIO
+        }
+    }
 }
 
 @Suppress("UNCHECKED_CAST")

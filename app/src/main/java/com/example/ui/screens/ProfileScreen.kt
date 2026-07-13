@@ -511,12 +511,8 @@ fun ProfileScreen(
                 Button(
                     onClick = {
                         showDeleteDialog = false
-                        viewModel.viewModelScope.launch {
-                            val db = AppDatabase.getDatabase(context)
-                            db.clearAllTables()
-                            Toast.makeText(context, "Base de datos reiniciada", Toast.LENGTH_SHORT).show()
-                            Runtime.getRuntime().exit(0)
-                        }
+                        viewModel.performHardReset()
+                        Toast.makeText(context, "Base de datos restablecida correctamente", Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = RoseCoral)
                 ) {
