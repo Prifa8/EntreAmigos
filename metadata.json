@@ -1,0 +1,6 @@
+{
+  "name": "EntreTodos",
+  "description": "Una aplicación colaborativa para registrar, organizar, simplificar y saldar deudas y gastos compartidos en grupos de amigos, hogar o viajes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
