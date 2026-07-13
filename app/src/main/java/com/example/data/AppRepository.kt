@@ -250,6 +250,12 @@ class AppRepository(private val db: AppDatabase) {
         return DebtSimplifier.calculateBalances(members, payers, splits, settlements, currency)
     }
 
+    suspend fun clearAllData() {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            db.clearAllTables()
+        }
+    }
+
     private fun formatCents(cents: Long, symbol: String): String {
         val major = cents / 100.0
         return String.format("%s %.2f", symbol, major)

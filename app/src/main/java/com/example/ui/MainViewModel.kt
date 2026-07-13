@@ -174,12 +174,20 @@ class MainViewModel(
     val groupBalancesMap: StateFlow<Map<Long, Long>> = _groupBalancesMap.asStateFlow()
 
     init {
-        // Automatically seed data if empty
+        // Seed database once if empty or has duplicate entries, to clear corruption and avoid freezing
+        viewModelScope.launch {
+            val existingGroups = repository.allGroups.first()
+            val hasDuplicates = existingGroups.groupBy { it.name }.any { it.value.size > 1 }
+            if (existingGroups.isEmpty() || hasDuplicates) {
+                repository.clearAllData()
+                seedDatabase()
+            }
+        }
+
+        // Listen to changes and update financials
         viewModelScope.launch {
             allGroups.collect { list ->
-                if (list.isEmpty()) {
-                    seedDatabase()
-                } else {
+                if (list.isNotEmpty()) {
                     calculateGlobalFinancials(list)
                 }
             }
@@ -315,35 +323,39 @@ class MainViewModel(
 
     // --- Recalculating Calculations ---
     private suspend fun recalculateActiveGroupStats(groupId: Long, currency: String) {
-        val result = repository.getSimplificationResultSync(groupId, currency)
-        val balances = repository.getBalancesSync(groupId, currency)
-        _activeSimplification.value = result
-        _activeBalances.value = balances
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            val result = repository.getSimplificationResultSync(groupId, currency)
+            val balances = repository.getBalancesSync(groupId, currency)
+            _activeSimplification.value = result
+            _activeBalances.value = balances
+        }
     }
 
     private suspend fun calculateGlobalFinancials(groups: List<GroupEntity>) {
-        var totalToReceive = 0L
-        var totalToPay = 0L
-        val balanceMap = mutableMapOf<Long, Long>()
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            var totalToReceive = 0L
+            var totalToPay = 0L
+            val balanceMap = mutableMapOf<Long, Long>()
 
-        for (g in groups) {
-            val members = repository.getMembersSync(g.id)
-            val userMember = members.find { it.isUser }
-            if (userMember != null) {
-                val balances = repository.getBalancesSync(g.id, g.baseCurrency)
-                val userBalanceObj = balances.find { it.memberId == userMember.id }
-                val net = userBalanceObj?.netBalance ?: 0L
-                balanceMap[g.id] = net
-                if (net > 0L) {
-                    totalToReceive += net
-                } else if (net < 0L) {
-                    totalToPay += -net
+            for (g in groups) {
+                val members = repository.getMembersSync(g.id)
+                val userMember = members.find { it.isUser }
+                if (userMember != null) {
+                    val balances = repository.getBalancesSync(g.id, g.baseCurrency)
+                    val userBalanceObj = balances.find { it.memberId == userMember.id }
+                    val net = userBalanceObj?.netBalance ?: 0L
+                    balanceMap[g.id] = net
+                    if (net > 0L) {
+                        totalToReceive += net
+                    } else if (net < 0L) {
+                        totalToPay += -net
+                    }
                 }
             }
+            _globalTotalToReceive.value = totalToReceive
+            _globalTotalToPay.value = totalToPay
+            _groupBalancesMap.value = balanceMap
         }
-        _globalTotalToReceive.value = totalToReceive
-        _globalTotalToPay.value = totalToPay
-        _groupBalancesMap.value = balanceMap
     }
 
     // --- Public Operations / Actions ---
