@@ -41,7 +41,8 @@ data class ExpenseEntity(
     val location: String = "",
     val status: String = "ACTIVE", // ACTIVE, DELETED
     val deletedAt: Long? = null,
-    val deletedBy: String? = null
+    val deletedBy: String? = null,
+    val proofUri: String? = null
 )
 
 @Entity(tableName = "expense_payers")

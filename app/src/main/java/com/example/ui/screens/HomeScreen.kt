@@ -54,7 +54,7 @@ fun HomeScreen(
 
     // Reactively calculate simplified transfers per group involving the user
     var loadedDebts by remember { mutableStateOf(false) }
-    LaunchedEffect(groups) {
+    LaunchedEffect(groups, balanceMap) {
         userPendingDebts.clear()
         groups.forEach { g ->
             val result = viewModel.getSimplificationResultSync(g.id, g.baseCurrency)

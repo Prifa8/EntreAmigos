@@ -29,6 +29,11 @@ import com.example.ui.Screen
 import com.example.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +68,26 @@ fun ExpenseDetailScreen(
             CircularProgressIndicator(color = EmeraldGreen)
         }
         return
+    }
+
+    val attachedReceiptBitmap = remember(exp.proofUri) {
+        val uriStr = exp.proofUri
+        if (uriStr == null) null
+        else {
+            try {
+                if (uriStr.startsWith("/")) {
+                    BitmapFactory.decodeFile(uriStr)
+                } else {
+                    val uri = android.net.Uri.parse(uriStr)
+                    context.contentResolver.openInputStream(uri).use { stream ->
+                        BitmapFactory.decodeStream(stream)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+        }
     }
 
     val payerName = members.find { it.id == payers.firstOrNull()?.memberId }?.name ?: "Alguien"
@@ -174,6 +199,86 @@ fun ExpenseDetailScreen(
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = TextSecondary
                                     )
+                                }
+                            }
+
+                            if (exp.proofUri != null) {
+                                var showReceiptZoomDialog by remember { mutableStateOf(false) }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Divider(color = BrandSurfaceElevated)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                
+                                Text(
+                                    text = "📸 Comprobante Adjunto (Toca para ampliar)",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = EmeraldGreen,
+                                    modifier = Modifier.align(Alignment.Start)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                if (attachedReceiptBitmap != null) {
+                                     Card(
+                                         shape = RoundedCornerShape(12.dp),
+                                         modifier = Modifier
+                                             .fillMaxWidth()
+                                             .height(160.dp)
+                                             .clickable { showReceiptZoomDialog = true }
+                                             .border(1.dp, BrandBorder, RoundedCornerShape(12.dp))
+                                     ) {
+                                         Image(
+                                             bitmap = attachedReceiptBitmap.asImageBitmap(),
+                                             contentDescription = "Receipt photo",
+                                             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                             modifier = Modifier.fillMaxSize()
+                                         )
+                                     }
+                                } else {
+                                     Row(
+                                         modifier = Modifier
+                                             .fillMaxWidth()
+                                             .background(BrandSurfaceElevated, RoundedCornerShape(10.dp))
+                                             .padding(12.dp),
+                                         verticalAlignment = Alignment.CenterVertically
+                                     ) {
+                                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldGreen)
+                                         Spacer(modifier = Modifier.width(8.dp))
+                                         val fileDisplay = if (exp.proofUri!!.contains("/")) exp.proofUri!!.substringAfterLast("/") else "Imagen"
+                                         Text(
+                                             text = "Comprobante registrado: $fileDisplay",
+                                             style = MaterialTheme.typography.bodySmall,
+                                             color = TextSecondary
+                                         )
+                                     }
+                                }
+
+                                if (showReceiptZoomDialog && attachedReceiptBitmap != null) {
+                                     AlertDialog(
+                                         onDismissRequest = { showReceiptZoomDialog = false },
+                                         confirmButton = {
+                                             TextButton(onClick = { showReceiptZoomDialog = false }) {
+                                                 Text("Cerrar", color = EmeraldGreen, fontWeight = FontWeight.Bold)
+                                             }
+                                         },
+                                         title = { Text("Visualización del Recibo", fontWeight = FontWeight.Bold, color = TextPrimary) },
+                                         text = {
+                                             Box(
+                                                 modifier = Modifier
+                                                     .fillMaxWidth()
+                                                     .height(320.dp)
+                                             ) {
+                                                 Image(
+                                                     bitmap = attachedReceiptBitmap.asImageBitmap(),
+                                                     contentDescription = "Receipt Full",
+                                                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                                                     modifier = Modifier.fillMaxSize()
+                                                 )
+                                             }
+                                         },
+                                         containerColor = BrandSurface,
+                                         shape = RoundedCornerShape(16.dp)
+                                     )
                                 }
                             }
                         }

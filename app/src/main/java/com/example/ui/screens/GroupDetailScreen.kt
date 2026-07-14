@@ -284,6 +284,7 @@ fun GastosTab(
     expenses: List<ExpenseEntity>,
     group: GroupEntity
 ) {
+    val dateFormatter = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
     if (expenses.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -298,6 +299,59 @@ fun GastosTab(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp)
         ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Historial de Gastos",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    
+                    val context = LocalContext.current
+                    FilledTonalButton(
+                        onClick = {
+                            val csv = buildString {
+                                append("Id,Descripcion,Importe,Categoria,Fecha,Notas\n")
+                                expenses.forEach { exp ->
+                                    val cleanDesc = exp.description.replace(",", ";")
+                                    val cleanCat = exp.category.replace(",", ";")
+                                    val cleanNotes = exp.notes.replace(",", ";").replace("\n", " ")
+                                    val dateStr = dateFormatter.format(Date(exp.expenseDate))
+                                    val amountStr = String.format(Locale.US, "%.2f", exp.totalAmount / 100.0)
+                                    append("${exp.id},$cleanDesc,${group.baseCurrency} $amountStr,$cleanCat,$dateStr,$cleanNotes\n")
+                                }
+                            }
+                            try {
+                                val sendIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(android.content.Intent.EXTRA_SUBJECT, "Reporte de Gastos - ${group.name}")
+                                    putExtra(android.content.Intent.EXTRA_TEXT, csv)
+                                }
+                                context.startActivity(android.content.Intent.createChooser(sendIntent, "Exportar Reporte de Gastos"))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error al exportar: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = EmeraldGreen.copy(alpha = 0.15f),
+                            contentColor = EmeraldGreen
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Download, contentDescription = "Exportar", modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Exportar CSV", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
             items(expenses) { exp ->
                 Card(
                     modifier = Modifier
@@ -346,12 +400,34 @@ fun GastosTab(
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary
                             )
-                            val dateFormatter = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
-                            Text(
-                                text = "${exp.category} • ${dateFormatter.format(Date(exp.expenseDate))}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "${exp.category} • ${dateFormatter.format(Date(exp.expenseDate))}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                                if (exp.notes.contains("[Gasto Recurrente:")) {
+                                    Box(
+                                        modifier = Modifier
+                                            .background(EmeraldGreen.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("🔁 Recurrente", fontSize = 9.sp, color = EmeraldGreen, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                if (exp.notes.contains("[Multidivisa:")) {
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0xFF3B82F6).copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("🌎 Multidivisa", fontSize = 9.sp, color = Color(0xFF3B82F6), fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
                         }
 
                         Text(
@@ -375,6 +451,8 @@ fun BalancesTab(
     group: GroupEntity,
     members: List<MemberEntity>
 ) {
+    val context = LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     var viewSimplified by remember { mutableStateOf(group.simplifyDebtsEnabled) }
 
     LazyColumn(
@@ -516,13 +594,119 @@ fun BalancesTab(
 
         // --- Active Pending Transfers Title ---
         item {
-            Text(
-                text = "Transferencias para saldar",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary,
-                modifier = Modifier.padding(top = 8.dp)
-            )
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Transferencias para saldar",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    FilledTonalButton(
+                        onClick = {
+                            val activeTransfers = if (viewSimplified) {
+                                simplification?.simplifiedDebts ?: emptyList()
+                            } else {
+                                simplification?.originalDebts ?: emptyList()
+                            }
+                            val shareText = buildString {
+                                append("📊 *Resumen de Gastos: ${group.name}* 📊\n")
+                                if (group.description.isNotBlank()) {
+                                    append("${group.description}\n")
+                                }
+                                append("\n💸 *Transferencias para saldar:*\n")
+                                if (activeTransfers.isEmpty()) {
+                                    append("✅ ¡No hay transferencias pendientes! El grupo está al día.")
+                                } else {
+                                    activeTransfers.forEach { t ->
+                                        append("• ${t.fromMemberEmoji} *${t.fromMemberName}* debe a ${t.toMemberEmoji} *${t.toMemberName}* -> *${formatCents(t.amount, group.baseCurrency)}*\n")
+                                    }
+                                }
+                                append("\n📱 _Enviado desde EntreTodos App_")
+                            }
+                            
+                            try {
+                                val sendIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(android.content.Intent.EXTRA_TEXT, shareText)
+                                    setPackage("com.whatsapp")
+                                }
+                                context.startActivity(sendIntent)
+                            } catch (e: Exception) {
+                                val chooserIntent = android.content.Intent.createChooser(
+                                    android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(android.content.Intent.EXTRA_TEXT, shareText)
+                                    },
+                                    "Compartir resumen"
+                                )
+                                context.startActivity(chooserIntent)
+                            }
+                        },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = EmeraldGreen.copy(alpha = 0.15f),
+                            contentColor = EmeraldGreen
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Compartir",
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Compartir", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    IconButton(
+                        onClick = {
+                            val activeTransfers = if (viewSimplified) {
+                                simplification?.simplifiedDebts ?: emptyList()
+                            } else {
+                                simplification?.originalDebts ?: emptyList()
+                            }
+                            val shareText = buildString {
+                                append("📊 *Resumen de Gastos: ${group.name}* 📊\n")
+                                if (group.description.isNotBlank()) {
+                                    append("${group.description}\n")
+                                }
+                                append("\n💸 *Transferencias para saldar:*\n")
+                                if (activeTransfers.isEmpty()) {
+                                    append("✅ ¡No hay transferencias pendientes! El grupo está al día.")
+                                } else {
+                                    activeTransfers.forEach { t ->
+                                        append("• ${t.fromMemberEmoji} *${t.fromMemberName}* debe a ${t.toMemberEmoji} *${t.toMemberName}* -> *${formatCents(t.amount, group.baseCurrency)}*\n")
+                                    }
+                                }
+                                append("\n📱 _Enviado desde EntreTodos App_")
+                            }
+                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(shareText))
+                            Toast.makeText(context, "Resumen copiado al portapapeles", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copiar",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
         }
 
         // --- Transfers list ---
@@ -583,22 +767,70 @@ fun BalancesTab(
                             )
                         }
 
-                        if (!group.archived) {
-                            Button(
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            IconButton(
                                 onClick = {
-                                    viewModel.navigateTo(
-                                        Screen.RegisterPayment(
-                                            groupId = group.id,
-                                            payerId = t.fromMemberId,
-                                            receiverId = t.toMemberId,
-                                            amount = t.amount
+                                    val formattedAmount = formatCents(t.amount, group.baseCurrency)
+                                    val debtText = "¡Hola! En el grupo '${group.name}', me debes $formattedAmount. ¡Gracias! 💸"
+                                    
+                                    // Copy to clipboard
+                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(debtText))
+                                    Toast.makeText(context, "Recordatorio copiado al portapapeles 📋", Toast.LENGTH_SHORT).show()
+                                    
+                                    // Share to WhatsApp / System share
+                                    try {
+                                        val sendIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(android.content.Intent.EXTRA_TEXT, debtText)
+                                            setPackage("com.whatsapp")
+                                        }
+                                        context.startActivity(sendIntent)
+                                    } catch (e: Exception) {
+                                        val chooserIntent = android.content.Intent.createChooser(
+                                            android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(android.content.Intent.EXTRA_TEXT, debtText)
+                                            },
+                                            "Compartir recordatorio"
                                         )
-                                    )
+                                        context.startActivity(chooserIntent)
+                                    }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
-                                shape = RoundedCornerShape(10.dp)
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(Color(0xFF25D366).copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                    .testTag("whatsapp_share_debt_${t.fromMemberId}"),
                             ) {
-                                Text("Registrar", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Icon(
+                                    imageVector = Icons.Default.Send,
+                                    contentDescription = "Enviar por WhatsApp",
+                                    tint = Color(0xFF128C7E),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            if (!group.archived) {
+                                Button(
+                                    onClick = {
+                                        viewModel.navigateTo(
+                                            Screen.RegisterPayment(
+                                                groupId = group.id,
+                                                payerId = t.fromMemberId,
+                                                receiverId = t.toMemberId,
+                                                amount = t.amount
+                                            )
+                                        )
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    modifier = Modifier.height(36.dp).testTag("register_payment_button_${t.fromMemberId}")
+                                ) {
+                                    Text("Saldar", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
                             }
                         }
                     }

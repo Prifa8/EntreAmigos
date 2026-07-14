@@ -173,16 +173,23 @@ class MainViewModel(
     private val _groupBalancesMap = MutableStateFlow<Map<Long, Long>>(emptyMap()) // groupId -> user balance in that group
     val groupBalancesMap: StateFlow<Map<Long, Long>> = _groupBalancesMap.asStateFlow()
 
+    private val financialRecalculationTrigger = MutableSharedFlow<Unit>(replay = 1).apply { tryEmit(Unit) }
+
     init {
-        // Force complete clean hard reset on this startup as requested by the user
+        // Seed database if empty, preserving user-created groups across app restarts
         viewModelScope.launch {
-            repository.clearAllData()
-            seedDatabase()
+            val existingGroups = repository.allGroups.first()
+            if (existingGroups.isEmpty()) {
+                seedDatabase()
+            }
+            financialRecalculationTrigger.emit(Unit)
         }
 
-        // Listen to changes and update financials
+        // Listen to changes and update financials reactively
         viewModelScope.launch {
-            allGroups.collect { list ->
+            allGroups.combine(financialRecalculationTrigger) { groups, _ ->
+                groups
+            }.collect { list ->
                 if (list.isNotEmpty()) {
                     calculateGlobalFinancials(list)
                 }
@@ -402,6 +409,7 @@ class MainViewModel(
             // Add current user as default member
             val creator = MemberEntity(groupId = id, name = userAlias.value, isUser = true, avatarEmoji = "👤")
             repository.insertMember(creator)
+            financialRecalculationTrigger.emit(Unit)
             navigateTo(Screen.GroupDetail(id))
         }
     }
@@ -419,6 +427,7 @@ class MainViewModel(
             )
             repository.updateGroup(updated)
             recalculateActiveGroupStats(groupId, currency)
+            financialRecalculationTrigger.emit(Unit)
         }
     }
 
@@ -428,6 +437,7 @@ class MainViewModel(
             val updated = existing.copy(archived = archive)
             repository.updateGroup(updated)
             recalculateActiveGroupStats(groupId, existing.baseCurrency)
+            financialRecalculationTrigger.emit(Unit)
         }
     }
 
@@ -437,6 +447,7 @@ class MainViewModel(
             repository.insertMember(member)
             val group = repository.getGroupSync(groupId)
             if (group != null) recalculateActiveGroupStats(groupId, group.baseCurrency)
+            financialRecalculationTrigger.emit(Unit)
         }
     }
 
@@ -445,6 +456,7 @@ class MainViewModel(
             repository.deleteMember(member)
             val group = repository.getGroupSync(member.groupId)
             if (group != null) recalculateActiveGroupStats(member.groupId, group.baseCurrency)
+            financialRecalculationTrigger.emit(Unit)
         }
     }
 
@@ -457,7 +469,8 @@ class MainViewModel(
         notes: String,
         payers: List<ExpensePayerEntity>,
         splits: List<ExpenseSplitEntity>,
-        actorName: String
+        actorName: String,
+        proofUri: String? = null
     ) {
         viewModelScope.launch {
             val group = repository.getGroupSync(groupId) ?: return@launch
@@ -468,10 +481,12 @@ class MainViewModel(
                 totalAmount = totalAmount,
                 currency = group.baseCurrency,
                 category = category,
-                notes = notes
+                notes = notes,
+                proofUri = proofUri
             )
             repository.saveExpense(exp, payers, splits, actorName)
             recalculateActiveGroupStats(groupId, group.baseCurrency)
+            financialRecalculationTrigger.emit(Unit)
             navigateBack()
         }
     }
@@ -481,6 +496,7 @@ class MainViewModel(
             repository.deleteExpense(expense, actorName)
             val group = repository.getGroupSync(expense.groupId)
             if (group != null) recalculateActiveGroupStats(expense.groupId, group.baseCurrency)
+            financialRecalculationTrigger.emit(Unit)
             navigateBack()
         }
     }
@@ -508,6 +524,7 @@ class MainViewModel(
             )
             repository.insertSettlement(settlement, userAlias.value)
             recalculateActiveGroupStats(groupId, group.baseCurrency)
+            financialRecalculationTrigger.emit(Unit)
             navigateBack()
         }
     }
@@ -535,11 +552,24 @@ class MainViewModel(
                 val group = repository.getGroupSync(activeId)
                 if (group != null) recalculateActiveGroupStats(activeId, group.baseCurrency)
             }
+            financialRecalculationTrigger.emit(Unit)
         }
     }
 
     fun getCommentsForExpense(expenseId: Long): Flow<List<CommentEntity>> =
         repository.getCommentsForExpense(expenseId)
+
+    suspend fun parseTicketWithGemini(rawText: String): GeminiService.ParsedTicket? {
+        return GeminiService.parseTicketText(rawText)
+    }
+
+    suspend fun parseTicketImageWithGemini(base64Image: String, mimeType: String): GeminiService.ParsedTicket? {
+        return GeminiService.parseTicketImage(base64Image, mimeType)
+    }
+
+    suspend fun fetchLiveExchangeRate(from: String, to: String): Double? {
+        return GeminiService.fetchExchangeRate(from, to)
+    }
 
     fun performHardReset() {
         viewModelScope.launch {
@@ -548,6 +578,7 @@ class MainViewModel(
             _activeGroupId.value = null
             _currentScreen.value = Screen.Main
             _currentTab.value = MainTab.INICIO
+            financialRecalculationTrigger.emit(Unit)
         }
     }
 }
